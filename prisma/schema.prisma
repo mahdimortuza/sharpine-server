@@ -1,13 +1,12 @@
  
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
+
 
 datasource db {
   provider = "postgresql"
 }
-
 model Account {
   id                String  @id @default(cuid())
   userId            String  @map("user_id")

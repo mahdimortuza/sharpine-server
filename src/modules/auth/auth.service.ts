@@ -1,15 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { DatabaseService } from '../database/database.service';
-
-interface GoogleProfile {
-  email: string;
-  name: string;
-  picture: string;
-  providerId: string;
-  accessToken?: string;
-  refreshToken?: string;
-}
+import { GoogleProfile } from './types/auth.types';
 
 @Injectable()
 export class AuthService {
@@ -19,13 +11,15 @@ export class AuthService {
     const { email, name, picture, providerId, accessToken, refreshToken } =
       profile;
 
+    const client = this.databaseService.client;
+
     // Find or create user
-    let user = await this.databaseService.user.findUnique({
+    let user = await client.user.findUnique({
       where: { email },
     });
 
     if (!user) {
-      user = await this.databaseService.user.create({
+      user = await client.user.create({
         data: {
           email,
           name,
@@ -36,7 +30,7 @@ export class AuthService {
     }
 
     // Upsert account
-    await this.databaseService.account.upsert({
+    await client.account.upsert({
       where: {
         provider_providerAccountId: {
           provider: 'google',
@@ -62,7 +56,7 @@ export class AuthService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
 
-    await this.databaseService.session.create({
+    await client.session.create({
       data: {
         sessionToken,
         userId: user.id,
@@ -74,7 +68,9 @@ export class AuthService {
   }
 
   async getUserFromSession(sessionToken: string) {
-    const session = await this.databaseService.session.findUnique({
+    const client = this.databaseService.client;
+
+    const session = await client.session.findUnique({
       where: { sessionToken },
       include: { user: true },
     });
@@ -87,7 +83,8 @@ export class AuthService {
   }
 
   async logout(sessionToken: string) {
-    await this.databaseService.session.delete({
+    const client = this.databaseService.client;
+    await client.session.delete({
       where: { sessionToken },
     });
   }
