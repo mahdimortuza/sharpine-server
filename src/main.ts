@@ -13,7 +13,7 @@ async function bootstrap() {
     credentials: true,
   });
 
-  await app.listen(process.env.PORT || 5000);
-  console.log(`🚀 Server running on port ${process.env.PORT || 5000}`);
+  await app.listen(5000);
+  console.log(`🚀 Server running on port ${5000}`);
 }
 bootstrap();
