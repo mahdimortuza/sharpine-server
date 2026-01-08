@@ -9,11 +9,12 @@ async function bootstrap() {
   app.use(cookieParser());
 
   app.enableCors({
-    origin: 'http://localhost:3000',
+    // origin: 'http://localhost:3000',
+    origin: 'https://sharpine-client.vercel.app/',
     credentials: true,
   });
 
-  await app.listen(5000);
-  console.log(`🚀 Server running on port ${5000}`);
+  await app.listen(3000);
+  console.log(`🚀 Server running on port ${3000}`);
 }
 bootstrap();
