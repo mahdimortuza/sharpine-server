@@ -8,7 +8,6 @@ import { AuthService } from './auth.service';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
-
   @Get('google')
   @UseGuards(AuthGuard('google'))
   async googleAuth() {}
@@ -21,23 +20,28 @@ export class AuthController {
         req.user as any,
       );
 
-      // Set httpOnly cookie
+      const isProduction = process.env.NODE_ENV === 'production';
+
+      // Set httpOnly cookie with cross-domain settings
       res.cookie('sessionToken', sessionToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        secure: isProduction, // true in production (HTTPS only)
+        sameSite: isProduction ? 'none' : 'lax', // 'none' required for cross-domain in production
         maxAge: 30 * 24 * 60 * 60 * 1000,
+        path: '/',
       });
 
       // Redirect to frontend
       const frontendUrl =
-        process.env.FRONTEND_CALLBACK_URL || 'http://localhost:3000';
+        process.env.FRONTEND_CALLBACK_URL || 'http://localhost:3000/callback';
       return res.redirect(frontendUrl);
     } catch (err) {
-      console.error(err);
-      return res.redirect(
-        `${process.env.FRONTEND_CALLBACK_URL || 'http://localhost:3000'}/login?error=auth_failed`,
-      );
+      console.error('Auth error:', err);
+      const frontendUrl =
+        process.env.FRONTEND_CALLBACK_URL || 'http://localhost:3000/callback';
+      // Strip /callback for error redirect
+      const baseUrl = frontendUrl.replace('/callback', '');
+      return res.redirect(`${baseUrl}/login?error=auth_failed`);
     }
   }
 
@@ -58,7 +62,15 @@ export class AuthController {
       await this.authService.logout(sessionToken);
     }
 
-    res.clearCookie('sessionToken');
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    res.clearCookie('sessionToken', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      path: '/',
+    });
+
     res.json({ message: 'Logged out successfully' });
   }
 }

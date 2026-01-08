@@ -13,7 +13,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL:
         process.env.GOOGLE_CALLBACK_URL ||
-        'https://sharpine-server.fly.dev/auth/google/callback',
+        'http://localhost:5000/auth/google/callback',
       scope: ['email', 'profile'],
     });
   }
