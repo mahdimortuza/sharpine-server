@@ -147,4 +147,228 @@ RISKS & CONSIDERATIONS:
       );
     }
   }
+
+  async createConversation(userId: string, title?: string): Promise<any> {
+    return this.prisma.conversation.create({
+      data: {
+        userId,
+        title: title || 'New Conversation',
+      },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+  }
+
+  /**
+   * Get conversation by ID
+   */
+  async getConversation(conversationId: string, userId: string): Promise<any> {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        userId,
+      },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    return conversation;
+  }
+
+  /**
+   * Get all conversations for a user
+   */
+  async getUserConversations(userId: string): Promise<any[]> {
+    return this.prisma.conversation.findMany({
+      where: { userId },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          take: 1, // Only get first message for preview
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  /**
+   * Delete a conversation
+   */
+  async deleteConversation(
+    conversationId: string,
+    userId: string,
+  ): Promise<void> {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        userId,
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found');
+    }
+
+    await this.prisma.conversation.delete({
+      where: { id: conversationId },
+    });
+  }
+
+  /**
+   * Generate title from first user message
+   */
+  private generateTitle(message: string): string {
+    // Take first 50 characters or until first newline
+    const title = message.split('\n')[0].substring(0, 50);
+    return title.length < message.length ? `${title}...` : title;
+  }
+
+  /**
+   * Build message history for AI context
+   */
+  private buildMessageHistory(messages: any[]): GroqMessage[] {
+    const history: GroqMessage[] = [
+      {
+        role: 'system',
+        content: this.getSystemPrompt(),
+      },
+    ];
+
+    // Add previous messages for context
+    messages.forEach((msg) => {
+      history.push({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+      });
+    });
+
+    return history;
+  }
+
+  /**
+   * Chat with AI (with conversation memory)
+   */
+  async chat(
+    userId: string,
+    message: string,
+    conversationId?: string,
+  ): Promise<{
+    conversationId: string;
+    response: string;
+    userMessage: any;
+    assistantMessage: any;
+  }> {
+    try {
+      this.logger.log(
+        `Processing chat request: ${message.substring(0, 50)}...`,
+      );
+
+      let conversation;
+
+      // Get or create conversation
+      if (conversationId) {
+        conversation = await this.getConversation(conversationId, userId);
+      } else {
+        // Create new conversation with auto-generated title
+        conversation = await this.createConversation(
+          userId,
+          this.generateTitle(message),
+        );
+      }
+
+      // Save user message
+      const userMessage = await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: 'user',
+          content: message,
+        },
+      });
+
+      // Build conversation history for AI context
+      const messageHistory = this.buildMessageHistory([
+        ...conversation.messages,
+        { role: 'user', content: message },
+      ]);
+
+      // Call Groq API with full conversation context
+      const response = await fetch(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: messageHistory,
+            max_tokens: 1000,
+            temperature: 0.7,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.logger.error(`Groq API error: ${response.status} - ${errorText}`);
+        throw new HttpException(
+          'Failed to generate AI response',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
+      const data: GroqResponse = await response.json();
+      const aiResponse = data.choices[0]?.message?.content;
+
+      if (!aiResponse) {
+        throw new Error('No response from Groq');
+      }
+
+      // Save assistant message
+      const assistantMessage = await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: 'assistant',
+          content: aiResponse,
+        },
+      });
+
+      // Update conversation timestamp
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { updatedAt: new Date() },
+      });
+
+      this.logger.log('✅ AI response generated and saved successfully');
+
+      return {
+        conversationId: conversation.id,
+        response: aiResponse.trim(),
+        userMessage,
+        assistantMessage,
+      };
+    } catch (error) {
+      this.logger.error('Error in chat service:', error);
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        'Failed to process chat request',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }

@@ -41,4 +41,69 @@ export class AiController {
       response,
     };
   }
+  @Post('conversations')
+  @ApiOperation({ summary: 'Create new conversation' })
+  @ApiResponse({
+    status: 201,
+    description: 'Conversation created',
+    type: ConversationResponseDto,
+  })
+  async createConversation(
+    @Req() req: any,
+    @Body() createDto: CreateConversationDto,
+  ): Promise<ConversationResponseDto> {
+    const userId = req.user.id;
+    return this.aiService.createConversation(userId, createDto.title);
+  }
+
+  /**
+   * Get all user conversations
+   */
+  @Get('conversations')
+  @ApiOperation({ summary: 'Get all user conversations' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of conversations',
+    type: [ConversationResponseDto],
+  })
+  async getConversations(@Req() req: any): Promise<ConversationResponseDto[]> {
+    const userId = req.user.id;
+    return this.aiService.getUserConversations(userId);
+  }
+
+  /**
+   * Get specific conversation with all messages
+   */
+  @Get('conversations/:id')
+  @ApiOperation({ summary: 'Get conversation by ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Conversation details',
+    type: ConversationResponseDto,
+  })
+  async getConversation(
+    @Req() req: any,
+    @Param('id') conversationId: string,
+  ): Promise<ConversationResponseDto> {
+    const userId = req.user.id;
+    return this.aiService.getConversation(conversationId, userId);
+  }
+
+  /**
+   * Delete a conversation
+   */
+  @Delete('conversations/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete conversation' })
+  @ApiResponse({
+    status: 204,
+    description: 'Conversation deleted',
+  })
+  async deleteConversation(
+    @Req() req: any,
+    @Param('id') conversationId: string,
+  ): Promise<void> {
+    const userId = req.user.id;
+    await this.aiService.deleteConversation(conversationId, userId);
+  }
 }
