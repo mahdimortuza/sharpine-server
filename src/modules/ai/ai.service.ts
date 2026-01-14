@@ -1,6 +1,14 @@
-// src/modules/ai/ai.service.ts - GROQ VERSION (FREE & FAST!)
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+
 import { ConfigService } from '@nestjs/config';
+import { DatabaseService } from '../database/database.service';
+import { GroqMessage } from './types/groq-message';
 
 interface GroqResponse {
   choices: Array<{
@@ -15,7 +23,10 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly apiKey: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private readonly prisma: DatabaseService,
+  ) {
     const apiKey = this.configService.get<string>('GROQ_API_KEY');
 
     if (!apiKey) {
@@ -30,33 +41,79 @@ export class AiService {
    * System prompt that instructs AI to behave as a business analyst
    */
   private getSystemPrompt(): string {
-    return `You are a professional business analyst. When analyzing a business idea, provide:
+    return `
+You are Sharpine AI — a senior startup operator, product strategist, and technical business analyst.
 
-1. SUMMARY: A clear 1-2 sentence overview of the business concept
-2. CORE FEATURES: List 3-5 essential features the product/service should have
-3. RISKS & CONSIDERATIONS: List 3-5 key challenges, risks, or important considerations
+Your job is NOT to hype ideas.
+Your job is to help founders decide:
+- Should this be built?
+- What version should be built first?
+- What could kill it early?
 
-Guidelines:
-- Be concise, professional, and actionable
-- Focus on practical insights
-- Keep total response under 300 words
-- Use bullet points for features and risks
-- Be realistic but constructive
+You must be:
+- Clear
+- Honest
+- Structured
+- Decision-oriented
 
-Format your response exactly like this:
+When a user shares an idea (even vague or messy), you MUST transform it into a build-ready analysis.
 
-SUMMARY:
-[Your 1-2 sentence summary]
+========================
+RESPONSE FORMAT (STRICT)
+========================
 
-CORE FEATURES:
-• [Feature 1]
-• [Feature 2]
-• [Feature 3]
+IDEA SUMMARY
+- Rewrite the idea clearly in 2–3 sentences.
+- Assume the founder will show this to an investor or engineer.
 
-RISKS & CONSIDERATIONS:
-• [Risk 1]
-• [Risk 2]
-• [Risk 3]`;
+PROBLEM & TARGET USER
+- What real problem does this solve?
+- Who exactly experiences this problem?
+
+SOLUTION OVERVIEW
+- How the product solves the problem.
+- What makes it different from existing solutions (if any).
+
+CORE FEATURES (MVP)
+List ONLY the minimum features required to test the idea:
+• Feature 1
+• Feature 2
+• Feature 3
+
+FEASIBILITY CHECK
+- Technical complexity: Low / Medium / High
+- Time to MVP (solo dev): X–Y weeks
+- Key technical dependencies or unknowns
+
+RISKS & FAILURE POINTS
+List the most realistic reasons this could fail:
+• Risk 1
+• Risk 2
+• Risk 3
+
+MONETIZATION & ROI LOGIC
+- How could this realistically make money?
+- Who would pay and why?
+- Is this a small tool, a SaaS, or a business?
+
+GO / NO-GO RECOMMENDATION
+- Clear recommendation: GO / CAUTION / NO-GO
+- 1–2 sentences explaining why
+
+NEXT STEPS (ACTIONABLE)
+Give the founder exactly what to do next:
+1. Step one
+2. Step two
+3. Step three
+
+RULES:
+- Be practical, not motivational
+- No buzzwords
+- No emojis
+- No generic advice
+- Assume the founder is technical
+- Keep total response under 500 words
+`;
   }
 
   /**
@@ -64,10 +121,6 @@ RISKS & CONSIDERATIONS:
    */
   async analyzeBusinessIdea(message: string): Promise<string> {
     try {
-      this.logger.log(
-        `Processing AI chat request: ${message.substring(0, 50)}...`,
-      );
-
       const response = await fetch(
         'https://api.groq.com/openai/v1/chat/completions',
         {
@@ -77,16 +130,10 @@ RISKS & CONSIDERATIONS:
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile', // Fast and high quality
+            model: 'llama-3.3-70b-versatile',
             messages: [
-              {
-                role: 'system',
-                content: this.getSystemPrompt(),
-              },
-              {
-                role: 'user',
-                content: message,
-              },
+              { role: 'system', content: this.getSystemPrompt() },
+              { role: 'user', content: message },
             ],
             max_tokens: 800,
             temperature: 0.7,
@@ -95,69 +142,34 @@ RISKS & CONSIDERATIONS:
       );
 
       if (!response.ok) {
-        const errorText = await response.text();
-        this.logger.error(`Groq API error: ${response.status} - ${errorText}`);
-
-        if (response.status === 401) {
-          throw new HttpException(
-            'AI service authentication failed. Please check your API key.',
-            HttpStatus.INTERNAL_SERVER_ERROR,
-          );
-        }
-
-        if (response.status === 429) {
-          throw new HttpException(
-            'AI service rate limit exceeded. Please try again in a moment.',
-            HttpStatus.TOO_MANY_REQUESTS,
-          );
-        }
-
         throw new HttpException(
-          'Failed to generate AI response. Please try again.',
-          HttpStatus.INTERNAL_SERVER_ERROR,
+          'Failed to generate AI response',
+          HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
 
-      const json: unknown = await response.json();
-
-      if (!json || typeof json !== 'object' || !('choices' in json)) {
-        throw new Error('Unexpected Groq API response format');
-      }
-
-      const data = json as GroqResponse;
-
+      const data = (await response.json()) as GroqResponse;
       const aiResponse = data.choices[0]?.message?.content;
 
       if (!aiResponse) {
-        throw new Error('No response from Groq');
+        throw new Error('Empty AI response');
       }
 
-      this.logger.log('✅ AI response generated successfully');
       return aiResponse.trim();
     } catch (error) {
-      this.logger.error('Error calling Groq API:', error);
-
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
+      this.logger.error('AI analysis failed', error);
       throw new HttpException(
-        'Failed to generate AI response. Please try again.',
+        'AI service error',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
-  async createConversation(userId: string, title?: string): Promise<any> {
-    return this.prisma.conversation.create({
-      data: {
-        userId,
-        title: title || 'New Conversation',
-      },
+  async createConversation(userId: string, title: string) {
+    return this.db.client.conversation.create({
+      data: { userId, title },
       include: {
-        messages: {
-          orderBy: { createdAt: 'asc' },
-        },
+        messages: { orderBy: { createdAt: 'asc' } },
       },
     });
   }
