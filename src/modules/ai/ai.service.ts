@@ -22,6 +22,7 @@ interface GroqResponse {
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly apiKey: string;
+  db: any;
 
   constructor(
     private configService: ConfigService,
@@ -201,6 +202,7 @@ RULES:
    * Get all conversations for a user
    */
   async getUserConversations(userId: string): Promise<any[]> {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     return this.prisma.conversation.findMany({
       where: { userId },
       include: {
