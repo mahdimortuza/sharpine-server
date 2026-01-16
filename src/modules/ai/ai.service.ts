@@ -64,16 +64,18 @@ RESPONSE FORMAT (STRICT)
 ========================
 
 IDEA SUMMARY
-- Rewrite the idea clearly in 2–3 sentences.
+- Rewrite the idea clearly in 5-8 sentences.
 - Assume the founder will show this to an investor or engineer.
 
 PROBLEM & TARGET USER
 - What real problem does this solve?
 - Who exactly experiences this problem?
+- What is the market size (if known)?
 
 SOLUTION OVERVIEW
 - How the product solves the problem.
 - What makes it different from existing solutions (if any).
+- Why users would choose this.
 
 CORE FEATURES (MVP)
 List ONLY the minimum features required to test the idea:
